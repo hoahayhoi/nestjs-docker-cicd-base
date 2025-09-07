@@ -1,26 +1,24 @@
-# Nest.js template
+# Nest.js Template
 
-Template này được sử dụng cho ứng dụng BẢO TRÌ THIẾT BỊ ĐIỆN
+### Project runtime environment: Node.js v22.13.1
 
-### Môi trường chạy dự án: Node.js v22.13.1
+## About the Author
 
-## Về tác giả
+hoahayhoi
 
-HT Corporation
+### Installation steps (development mode):
 
-Các bước cài đặt: (chế độ development)
+1. Clone the repository  
+2. Install dependencies: `npm i`  
+3. Update `.env.development` file (if necessary)  
+4. Run the project: `npm run dev`  
 
-1. clone code
-2. cài đặt thư viện: npm i
-3. Update file .env.development (nếu cần thiết)
-4. Chạy dự án: npm run dev
+---
 
-===
+### How to run in production mode:
 
-Cách chạy tại chế độ production:
-
-1. clone code
-2. cài đặt thư viện: npm i
-3. Update file .env.production (nếu cần thiết)
-4. Build dự án: npm run build
-5. Chạy dự án: npm run preview
+1. Clone the repository  
+2. Install dependencies: `npm i`  
+3. Update `.env.production` file (if necessary)  
+4. Build the project: `npm run build`  
+5. Run the project: `npm run preview`  
