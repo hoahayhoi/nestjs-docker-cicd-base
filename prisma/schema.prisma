@@ -1,0 +1,526 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  fullName       String   @db.VarChar(255)
+  email          String?   @unique @db.VarChar(255)
+  password       String   @db.Text
+  phone          String  @unique @db.VarChar(20)
+  avatar         String?  @db.Text
+  loginProvider  String   @default("LOCAL") @db.VarChar(10)
+  providerKey    String?  @db.VarChar(255)
+  role           RoleEnum @default(customer)
+  branchId       Int?
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  technician     Technicians?
+  addresses      UserAddress[]
+  serviceOrders  ServiceOrder[]
+  appointments   Appointment[]
+  reviews        Review[]
+  supportRequests  SupportRequests[]
+  notifications  UserNotification[]
+  devices       Devices[]
+  userRoles     UserRole[]
+}
+
+model Technicians {
+  id             Int     @id @default(autoincrement())
+  user_id        Int     @unique
+  full_name      String  @db.VarChar(100)
+  phone          String  @db.VarChar(20)
+  specialization String? @db.VarChar(100)
+  average_rating Decimal  @default(0.0) @db.Decimal(3,2)
+  total_review   Int     @default(0)
+
+  user           User     @relation(fields: [user_id], references: [id])
+  tasks          Task[]
+  reviews        Review[]
+  appointments   Appointment[]
+}
+
+model UserAddress {
+  id          Int     @id @default(autoincrement())
+  userId      Int     
+  phoneNumber String  @db.VarChar(15)
+  address     String  @db.Text
+
+  // Relationship
+  user        User    @relation(fields: [userId], references: [id])
+}
+
+model ServiceOrder {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  orderDate   DateTime @default(now())
+  totalAmount Int
+  status      ServiceOrderStatusEnum @default(booked)
+  paymentMethod PaymentMethodEnum?
+  updatedAt   DateTime?
+  updatedBy   Int?
+  
+  // Relationships
+  user                  User                 @relation(fields: [customerId], references: [id])
+  serviceOrderDetails   ServiceOrderDetail[]
+  appointment           Appointment?
+}
+
+model ServiceOrderDetail {
+  id            Int    @id @default(autoincrement())
+  orderId       Int
+  serviceId     Int
+  status        ServiceOrderDetailStatusEnum @default(booked)
+  rating        Int?
+  basePrice     Int     @default(0)
+  additionalPrice Int     @default(0)
+  totalSparePartPrice  Int   @default(0)
+  finalPrice   Int     @default(0)
+
+  // Relationships
+  order         ServiceOrder @relation(fields: [orderId], references: [id])
+  appointment   Appointment?
+  reviews       Review[]
+  service       Services     @relation(fields: [serviceId], references: [id])
+  serviceWarranty ServiceWarranty?
+}
+
+model ServiceWarranty {
+  id              Int       @id @default(autoincrement())
+  orderDetailId   Int       @unique
+  serviceId       Int       // Thêm để truy vấn nhanh
+  start_date      DateTime
+  end_date        DateTime
+  status          WarrantyStatus @default(Active)
+  claims_count    Int       @default(0)
+  notes           String?   @db.Text // Ghi chú về bảo hành
+
+  // Quan hệ
+  orderDetail     ServiceOrderDetail @relation(fields: [orderDetailId], references: [id])
+  service         Services           @relation(fields: [serviceId], references: [id])
+
+  @@index([orderDetailId])
+  @@index([serviceId])
+  @@index([end_date])
+}
+
+model Appointment {
+  id                   Int       @id @default(autoincrement())
+  userId               Int?
+  fullName             String    @db.VarChar(100)
+  phone                String    @db.VarChar(20)
+  email                String?   @db.VarChar(255)
+  address              String    @db.Text
+  serviceOrderId       Int       @unique
+  serviceOrderDetailId Int       @unique
+  scheduledDate        DateTime  @db.Date
+  scheduledTime        String    @db.VarChar(10)
+  currentStatus       AppointmentStatusEnum @default(booked)
+  customerNote        String?   @db.Text
+  employeeNote        String?   @db.Text
+  createdAt           DateTime  @default(now())
+  cancelReason        String?   @db.Text
+  rescheduleCount     Int       @default(0)
+  technicianId        Int?
+  diagnosis           String    @db.Text @default("")
+  cancelBy            AppointmentCancelBy?
+
+
+  // Relationships
+  user                 User?                 @relation(fields: [userId], references: [id])
+  technician          Technicians?          @relation(fields: [technicianId], references: [id])
+  serviceOrder         ServiceOrder          @relation(fields: [serviceOrderId], references: [id])
+  serviceOrderDetail   ServiceOrderDetail    @relation(fields: [serviceOrderDetailId], references: [id])
+  appointmentStatus    AppointmentStatus[]
+  statusHistories      StatusHistory[] 
+  supportRequests      SupportRequests[]
+  repairImages        RepairImage[]
+  usedSpareParts UsedSparePart[]
+}
+
+model RepairImage {
+  id            Int          @id @default(autoincrement())
+  appointmentId Int
+  image         String       @db.VarChar(255)
+  uploadedAt    DateTime     @default(now())
+  image_type    RepairImageTypeEnum
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+model AppointmentStatus {
+  id              Int       @id @default(autoincrement())
+  appointment_id  Int       @unique
+  status          String    @db.VarChar(20)
+  update_at       DateTime  @updatedAt
+  notes           String?   @db.Text
+
+  appointment     Appointment @relation(fields: [appointment_id], references: [id])
+}
+
+model StatusHistory {
+  id             Int       @id @default(autoincrement())
+  appointment_id Int       
+  old_status     String?   @db.VarChar(50)
+  new_status     String    @db.VarChar(50)
+  changed_by     ChangedBy
+  created_at     DateTime  @default(now())
+
+  appointment    Appointment @relation(fields: [appointment_id], references: [id])
+}
+
+
+model SupportRequests {
+  id             Int       @id @default(autoincrement())
+  appointment_id Int       
+  user_id        Int       
+  issue_type     IssueType
+  description    String    @db.Text
+  status         SupportStatus @default(pending)
+  created_at     DateTime     @default(now())
+  updated_at     DateTime     @updatedAt 
+
+  appointment    Appointment @relation(fields: [appointment_id], references: [id])
+  user           User        @relation(fields: [user_id], references: [id])
+}
+
+
+model Branch {
+  id   Int     @id @default(autoincrement())
+  name       String  @db.VarChar(255)
+  slug       String  @unique @db.VarChar(255)
+}
+
+model ServiceCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  slug        String   @unique @db.VarChar(255)
+  description String   @db.Text
+  basePrice   Int      
+  deviceType  String   @db.VarChar(50)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  ServiceCatImages ServiceCatImages[]
+  services    Services[]
+}
+
+model Services {
+  id            Int     @id @default(autoincrement())
+  name          String  @db.VarChar(255)
+  slug          String  @unique @db.VarChar(255)
+  categoryId    Int 
+  average_rating Float  @default(0.0)
+  review_count  Int     @default(0)
+  description   String  @db.Text
+  base_price    Int
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  warranty_period Int     @default(0)
+  warranty_unit   WarrantyUnit  @default(months)
+  icon_url      String?   @db.VarChar(255)
+
+  category      ServiceCategory @relation(fields: [categoryId], references: [id])
+
+  ServiceImages ServiceImages[]
+  serviceOrderDetails ServiceOrderDetail[]
+  serviceWarranties ServiceWarranty[]
+}
+
+model ServiceImages {
+  id            Int     @id @default(autoincrement())
+  service_id Int    
+  image_url     String  @db.VarChar(255)
+  services    Services @relation(fields: [service_id], references: [id])
+}
+
+model ServiceCatImages {
+  id            Int     @id @default(autoincrement())
+  service_cat_id Int    
+  image_url     String  @db.VarChar(255)
+  serviceCat    ServiceCategory @relation(fields: [service_cat_id], references: [id])
+}
+
+model SparePartCategory {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  spareParts  SparePart[] // Liên kết 1-n
+}
+
+model SparePart {
+  id                    Int               @id @default(autoincrement())
+  name                  String
+  description           String?
+  categoryId            Int
+  compatibleDeviceModels String?
+  price                 Int
+  quantityInStock       Int
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  category              SparePartCategory @relation(fields: [categoryId], references: [id])
+  usedSpareParts       UsedSparePart[]
+}
+
+model UsedSparePart {
+  id                   Int                @id @default(autoincrement())
+  appointmentId        Int
+  sparePartId          Int
+  quantityUsed         Int
+  note                 String? 
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now())
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  sparePart            SparePart          @relation(fields: [sparePartId], references: [id])
+}
+
+model Task {
+  id           Int      @id @default(autoincrement())
+  staffId      Int
+  description  String   @db.Text
+  assignDate   DateTime
+  status       String   @default("pending") @db.VarChar(20)
+  resultImage  String?  @db.Text
+  orderId      Int?     
+
+  // Relationships
+  staff        Technicians @relation(fields: [staffId], references: [id])
+}
+
+
+model Review {
+  id                    Int      @id @default(autoincrement())
+  serviceOrdersDetailId  Int
+  userId                Int
+  technicianId          Int
+  rating               Int
+  comment              String?  @db.Text
+  isAnonymous          Boolean  @default(true)
+  mediaList            String?  @db.Text
+  createdAt            DateTime @default(now())
+
+  // Relationships
+  serviceOrdersDetail   ServiceOrderDetail @relation(fields: [serviceOrdersDetailId], references: [id])
+  user                 User               @relation(fields: [userId], references: [id])
+  technician           Technicians         @relation(fields: [technicianId], references: [id])
+}
+
+model Devices {
+  device_id    Int      @id @default(autoincrement())
+  userId   Int      
+  device_token String   @unique @db.Text
+  device_type  String   @db.VarChar(20)
+  os_version   String?  @db.VarChar(50)
+  app_version  String?  @db.VarChar(50)
+  status       String   @default("active") @db.VarChar(20)
+  created_at   DateTime @default(now())
+  last_activity DateTime @updatedAt
+
+  notifications  UserNotification[]
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Notifications {
+  notification_id Int      @id @default(autoincrement())
+  entity_id       Int?
+  entity_type     EntityType
+  type           NotificationType
+  title          String   @db.VarChar(255)
+  content        String   @db.Text
+  image_url      String?  @db.Text
+  action_url     String?  @db.Text
+  sent_by        String   @default("System") @db.VarChar(50)
+  schedule_at    DateTime?
+  status         NotificationStatus @default(pending)
+  created_at     DateTime @default(now())
+  sent_at        DateTime @updatedAt
+  
+  userNotifications UserNotification[]
+  
+  @@index([entity_type, entity_id])
+}
+
+model UserNotification {
+  id              Int       @id @default(autoincrement())
+  user_id         Int
+  notification_id Int
+  entity_id       Int?
+  entity_type     EntityType
+  device_id       Int?
+  delivered_at    DateTime?
+  read_at         DateTime?
+  status          UserNotificationStatus @default(pending)
+  
+  notification    Notifications @relation(fields: [notification_id], references: [notification_id])
+  user           User         @relation(fields: [user_id], references: [id])
+  device         Devices?     @relation(fields: [device_id], references: [device_id])
+  
+  @@index([user_id, status])
+  @@index([entity_type, entity_id])
+}
+
+model Role {
+  id          Int         @id @default(autoincrement())
+  role_name   String      @unique @db.VarChar(50)
+  description String?
+  
+  users      UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id              Int         @id @default(autoincrement())
+  permission_name String      @unique @db.VarChar(50)
+  description     String?
+  
+  roles RolePermission[]
+}
+
+model UserRole {
+  user_id Int
+  role_id Int
+  
+  role Role @relation(fields: [role_id], references: [id])
+  user User @relation(fields: [user_id], references: [id])
+  
+  @@unique([user_id, role_id])
+}
+
+model RolePermission {
+  role_id       Int
+  permission_id Int
+  
+  role       Role       @relation(fields: [role_id], references: [id])
+  permission Permission @relation(fields: [permission_id], references: [id])
+  
+  @@unique([role_id, permission_id])
+}
+
+enum ChangedBy {
+  system
+  customer
+  technician
+  admin
+}
+
+enum RoleEnum {
+  customer
+  technician
+  admin
+}
+
+enum EntityType {
+  appointment
+  promotion
+  system
+}
+
+enum NotificationType {
+  sms
+  email
+  push
+}
+
+enum NotificationStatus { 
+  pending
+  sent
+  failed
+}
+
+enum UserNotificationStatus {
+  pending
+  delivered
+  read
+  failed
+}
+
+enum AppointmentCancelBy {
+  customer
+  technician
+  admin
+}
+
+
+enum IssueType {
+  delay
+  quality
+  technician
+  other
+}
+
+enum SupportStatus {
+  pending
+  resolved
+}
+
+enum ServiceOrderStatusEnum {
+  booked
+  confirmed
+  paid
+  completed
+  cancelled
+}
+
+enum ServiceOrderDetailStatusEnum {
+  booked
+  confirmed
+  completed
+  cancelled
+}
+
+enum AppointmentStatusEnum {
+  booked
+  confirmed
+  en_route
+  arrived
+  quoted
+  quote_confirmed
+  in_progress
+  technician_done
+  completed
+  cancelled
+}
+
+enum RepairImageTypeEnum {
+  pre
+  post
+}
+
+enum PaymentMethodEnum {
+  cash
+  bank_transfer
+}
+
+enum WarrantyStatus {
+  Active
+  Expired
+  Void
+  Claimed
+}
+
+enum WarrantyUnit {
+  days
+  months
+  years
+}

@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    image: local/nginx:stable
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - '8080:80'
+      - '8443:443'
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-bttbd}_app-network

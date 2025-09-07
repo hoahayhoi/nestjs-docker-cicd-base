@@ -1,0 +1,165 @@
+stages:
+  - build-infra
+  - build-app
+  - deploy-dev
+
+variables:
+  CI_REGISTRY: registry.gitlab.com
+  CI_REGISTRY_IMAGE: registry.gitlab.com/test-group1305832/bttbd
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+  ENV_FILE: '.env.development'
+  COMPOSE_PROJECT_NAME: 'bttbd'
+  BUILD_INFRA: 'false'
+
+image: docker:latest
+
+services:
+  - name: docker:dind
+    alias: docker
+
+before_script:
+  - |
+    echo "Installing dependencies..."
+    apk add --no-cache openssh-client rsync gettext docker-compose
+  - |
+    echo "Logging in to GitLab Container Registry..."
+    docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+generate_env_file:
+  stage: build-infra
+  environment:
+    name: dev
+  script:
+    - |
+      echo "Generating ${ENV_FILE} from template..."
+      envsubst < .env.template > ${ENV_FILE}
+
+      echo "Generated ${ENV_FILE} contents:"
+      grep -v -E "(PASSWORD|API_KEY|SECRET|TOKEN)" ${ENV_FILE} || true
+      echo "Sensitive values are masked"
+  artifacts:
+    paths:
+      - ${ENV_FILE}
+    expire_in: 1 hour
+
+build-infra:
+  stage: build-infra
+  needs: [generate_env_file]
+  environment:
+    name: dev
+  script:
+    - |
+      echo "Building infrastructure images..."
+      echo "BUILD_INFRA variable is set to: $BUILD_INFRA"
+
+      # Build nginx image
+      docker-compose -f docker-compose.infra.build.yml --env-file ${ENV_FILE} build nginx
+
+      # Tag và push infra images
+      docker tag local/nginx:stable $CI_REGISTRY_IMAGE/nginx:stable
+      docker tag local/nginx:stable $CI_REGISTRY_IMAGE/nginx:dev-$CI_COMMIT_SHORT_SHA
+
+      docker push $CI_REGISTRY_IMAGE/nginx:stable
+      docker push $CI_REGISTRY_IMAGE/nginx:dev-$CI_COMMIT_SHORT_SHA
+
+      echo "Infrastructure images built and pushed successfully"
+  rules:
+    - if: $BUILD_INFRA == "true" && $CI_COMMIT_BRANCH == "dev" && $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - nginx/**/*
+        - docker-compose.infra.build.yml
+        - docker-compose.infra.yml
+      when: manual
+    - if: $BUILD_INFRA == "true" && $CI_COMMIT_BRANCH == "dev" && $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - nginx/**/*
+        - docker-compose.infra.build.yml
+        - docker-compose.infra.yml
+      when: manual
+    - if: $BUILD_INFRA == "true" && $CI_PIPELINE_SOURCE == "web"
+      when: manual
+    - if: $BUILD_INFRA == "true" && $CI_COMMIT_BRANCH == "dev"
+      when: manual
+  dependencies:
+    - generate_env_file
+
+build-app:
+  stage: build-app
+  needs:
+    - job: generate_env_file
+      artifacts: true
+    - job: build-infra
+      optional: true # Quan trọng: đánh dấu optional
+  environment:
+    name: dev
+  script:
+    - |
+      echo "Building application image..."
+      echo "BUILD_INFRA variable is set to: $BUILD_INFRA"
+
+      # Chỉ pull nginx image nếu BUILD_INFRA = true
+      if [ "$BUILD_INFRA" = "true" ]; then
+        echo "Pulling nginx image from registry..."
+        docker pull $CI_REGISTRY_IMAGE/nginx:stable || echo "Nginx image not available, continuing without it"
+      else
+        echo "Skipping nginx pull (BUILD_INFRA = false)"
+      fi
+
+      # Build chỉ service app
+      docker-compose -f docker-compose.base.yml \
+                     -f docker-compose.infra.yml \
+                     -f docker-compose.app.yml \
+                     -f docker-compose.override.yml \
+                     --env-file ${ENV_FILE} build app
+
+      # Tag và push app image
+      docker tag $CI_REGISTRY_IMAGE/app:latest $CI_REGISTRY_IMAGE/app:dev-$CI_COMMIT_SHORT_SHA
+      docker tag $CI_REGISTRY_IMAGE/app:latest $CI_REGISTRY_IMAGE/app:dev-latest
+
+      docker push $CI_REGISTRY_IMAGE/app:dev-$CI_COMMIT_SHORT_SHA
+      docker push $CI_REGISTRY_IMAGE/app:dev-latest
+
+      echo "Application image built and pushed successfully"
+  only:
+    - dev
+  dependencies:
+    - generate_env_file
+# deploy-dev:
+#   stage: deploy-dev
+#   needs: [generate_env_file, build-dev]
+#   script:
+#     - |
+#       echo "Deploying to VPS..."
+#       mkdir -p ~/.ssh
+#       echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+#       chmod 600 ~/.ssh/id_rsa
+
+#       # Copy file env và docker-compose lên VPS
+#       rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+#         ${ENV_FILE} \
+#         docker-compose.yml \
+#         docker-compose.override.yml \
+#         $VPS_USER@$VPS_HOST:/app/
+
+#       # SSH deploy với file env
+#       ssh -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST << 'EOF'
+#         cd /app
+
+#         # Sử dụng trực tiếp file env với docker-compose
+#         docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+#         docker-compose --env-file .env.development down
+#         docker-compose --env-file .env.development pull
+#         docker-compose --env-file .env.development up -d
+
+#         # Clean up (tùy chọn - có thể giữ file env trên server)
+#         # rm -f .env.development
+#       EOF
+#   only:
+#     - dev
+#   environment:
+#     name: dev
+#     url: http://your-vps-ip-or-domain
+#   dependencies:
+#     - generate_env_file

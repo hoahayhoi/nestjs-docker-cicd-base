@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE:-Dockerfile} # CI: sẽ dùng Dockerfile (prod). Dev override sẽ sử dụng Dockerfile.dev
+      args:
+        NODE_ENV: ${NODE_ENV:-production}
+    image: ${CI_REGISTRY_IMAGE}/app:${TAG:-latest}
+    env_file:
+      - ${ENV_FILE}
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=${NODE_ENV:-production}
+    ports:
+      - '${APP_PORT:-80}:${APP_PORT:-80}'
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-bttbd}_app-network

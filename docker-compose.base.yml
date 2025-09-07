@@ -1,0 +1,13 @@
+version: '3.8'
+
+# chung cho tất cả các môi trường: volumes + network name (per-project)
+volumes:
+  postgres-data:
+  redis-data:
+  postgres-test-data:
+  redis-test-data:
+
+networks:
+  app-network:
+    name: ${COMPOSE_PROJECT_NAME:-bttbd}_app-network
+    driver: bridge

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env.development
+    environment:
+      - APP_ENV=development
+      - NODE_ENV=development
+      - DEBUG=true
+    volumes:
+      - .:/app:cached
+      - /app/node_modules
+    ports:
+      - '${APP_PORT:-8081}:${APP_PORT:-8081}'
+    expose:
+      - '8081'
+    command: sh -c "npx prisma migrate deploy || true && npx prisma generate && nest start --tsc --watch"
+
+  postgres:
+    env_file:
+      - .env.development
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+
+  redis:
+    env_file:
+      - .env.development
+    command: redis-server --requirepass ${REDIS_PASSWORD}
