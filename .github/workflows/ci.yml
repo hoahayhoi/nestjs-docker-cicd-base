@@ -1,0 +1,100 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+  workflow_dispatch: # Cho phép chạy thủ công
+
+env:
+  CI_REGISTRY: ghcr.io
+  CI_REGISTRY_IMAGE: ghcr.io/<your-org-or-username>/<repo-name>
+  ENV_FILE: .env.development
+  COMPOSE_PROJECT_NAME: bttbd
+  BUILD_INFRA: false
+
+jobs:
+  generate_env_file:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate env file
+        run: |
+          echo "Generating ${ENV_FILE} from template..."
+          envsubst < .env.template > ${ENV_FILE}
+
+          echo "Generated ${ENV_FILE} contents:"
+          grep -v -E "(PASSWORD|API_KEY|SECRET|TOKEN)" ${ENV_FILE} || true
+          echo "Sensitive values are masked"
+      - name: Upload env file artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: env-file
+          path: ${{ env.ENV_FILE }}
+
+  build-infra:
+    runs-on: ubuntu-latest
+    needs: generate_env_file
+    if: ${{ env.BUILD_INFRA == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download env file artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: env-file
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CI_REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_PASSWORD }}
+      - name: Build and push infra images
+        run: |
+          docker-compose -f docker-compose.infra.build.yml --env-file ${ENV_FILE} build nginx
+
+          docker tag local/nginx:stable $CI_REGISTRY_IMAGE/nginx:stable
+          docker tag local/nginx:stable $CI_REGISTRY_IMAGE/nginx:dev-${{ github.sha }}
+
+          docker push $CI_REGISTRY_IMAGE/nginx:stable
+          docker push $CI_REGISTRY_IMAGE/nginx:dev-${{ github.sha }}
+
+  build-app:
+    runs-on: ubuntu-latest
+    needs: [generate_env_file, build-infra]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download env file artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: env-file
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CI_REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_PASSWORD }}
+      - name: Build and push app image
+        run: |
+          if [ "${{ env.BUILD_INFRA }}" = "true" ]; then
+            echo "Pulling nginx image from registry..."
+            docker pull $CI_REGISTRY_IMAGE/nginx:stable || echo "Nginx image not available"
+          fi
+
+          docker-compose -f docker-compose.base.yml \
+                         -f docker-compose.infra.yml \
+                         -f docker-compose.app.yml \
+                         -f docker-compose.override.yml \
+                         --env-file ${ENV_FILE} build app
+
+          docker tag $CI_REGISTRY_IMAGE/app:latest $CI_REGISTRY_IMAGE/app:dev-${{ github.sha }}
+          docker tag $CI_REGISTRY_IMAGE/app:latest $CI_REGISTRY_IMAGE/app:dev-latest
+
+          docker push $CI_REGISTRY_IMAGE/app:dev-${{ github.sha }}
+          docker push $CI_REGISTRY_IMAGE/app:dev-latest
